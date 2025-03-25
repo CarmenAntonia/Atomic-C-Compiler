@@ -78,14 +78,7 @@ public class LexicalAnalizer {
         }
     }
 
-    public static void main(String[] args) {
-        try {
-            LexicalAnalizer lexicalAnalizer = new LexicalAnalizer("tests/8.c");
-            lexicalAnalizer.validTokens();
-            lexicalAnalizer.printTokens();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
-    }    
+    public ArrayList<Token> getTokens(){
+        return tokens;
+    } 
 }

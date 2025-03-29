@@ -185,9 +185,24 @@ public class SyntacticAnalizer {
                 consume(TokenType.ID); //struct declaration
 
                 if (consume(TokenType.LBRACKET)) {
-                    expression();
+                    if(tokens.get(index).getType() != TokenType.RBRACKET)
+                        expression();
                     if (!consume(TokenType.RBRACKET)) {
                         error("Missing closing bracket ]");
+                    }
+                    if(consume(TokenType.ASSIGN)) {
+                        if (consume(TokenType.LACC)) { //array initialization
+                            do {
+                                if (consume(TokenType.CT_CHAR) || consume(TokenType.CT_INT) || consume(TokenType.CT_REAL) || consume(TokenType.CT_STRING)) {
+                                }
+                            } while (consume(TokenType.COMMA));
+                            if (!consume(TokenType.RACC)) {
+                                error("Missing closing curly bracket }");
+                            }
+                        }
+                        else{
+                            error("Missing left curly bracket {");
+                        }
                     }
                 }
             } while (consume(TokenType.COMMA));
@@ -341,6 +356,37 @@ public class SyntacticAnalizer {
         return false;
     }
 
+    public boolean whileRule(){
+        if(consume(TokenType.WHILE)){
+            if(consume(TokenType.LPAR)){
+                if(condition()){
+                    if(consume(TokenType.RPAR)){
+                        if(consume(TokenType.LACC)){
+                            analize(false);
+                            if(!consume(TokenType.RACC)){
+                                error("Missing closing curly bracket }");
+                            }
+                            return true;
+                        }
+                        else{
+                            error("Missing left curly bracket {");
+                        }
+                    }
+                    else{
+                        error("Missing right parenthesis )") ;
+                    }
+                }
+                else{
+                    error("Missing condition");
+                }
+            }
+            else{
+                error("Missing left parenthesis (") ;
+            }
+        }
+        return false;
+    }
+
     public boolean returnStatement(){
         if(consume(TokenType.RETURN)){
             if(condition() || expression()){
@@ -401,6 +447,9 @@ public class SyntacticAnalizer {
             }
             else if(forRule()){
                 System.out.println("for rule");
+            }
+            else if(whileRule()){
+                System.out.println("while rule");
             }
             else if(returnStatement()){
                 System.out.println("return statement");

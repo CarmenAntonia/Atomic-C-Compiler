@@ -6,8 +6,6 @@ public class SyntacticAnalizer {
     private int index = 0;
     private SemanticAnalizer semanticAnalizer;
     private RetVal rv;
-    private char sign = ' ';
-    private int prevVal;
 
     public SyntacticAnalizer(String filename) throws IOException {
         LexicalAnalizer lexicalAnalizer = new LexicalAnalizer(filename);
@@ -31,117 +29,169 @@ public class SyntacticAnalizer {
         System.exit(1);
     }
 
-    public boolean expression() {
-        if(functionCall(false)){
-            return true;
+    public RetVal expression() {
+        if (functionCall(false)) {
+            return rv;
         }
 
-        //sign = ' ';
-        rv = new RetVal(new Type(TypeBase.TB_INT,null,-1), false, true, CtVal.fromInt(0));
-        Type currentType = rv.type;
-
-        if (!term()) {
+        RetVal left = term();
+        if (left == null) {
             error("Invalid expression");
-            return false;
+            return null;
         }
 
-        currentType = semanticAnalizer.getArithType(currentType, rv.type);
-        
-        //addition and subtraction
+        TokenType op;
         while (consume(TokenType.ADD) || consume(TokenType.SUB)) {
-            if(tokens.get(index-1).getType() == TokenType.ADD){
-                sign = '+';
-            }
-            else{
-                sign = '-';
-            }
-
-            if (!term()) {
+            op = tokens.get(index - 1).getType();
+            RetVal right = term();
+            if (right == null) {
                 error("Missing term after operator");
-                return false;
-            }
-            currentType = semanticAnalizer.getArithType(currentType, rv.type);
-            rv.type = currentType;
-        }
-        return true;
-    }
-    
-    //multiplication and division
-    private boolean term() {
-        if(functionCall(false)){
-            return true;
-        }
-        if (!factor()) {
-            return false;
-        }
-    
-        while (consume(TokenType.MUL) || consume(TokenType.DIV)) {
-            if(tokens.get(index-1).getType() == TokenType.MUL){
-                sign = '*';
-            }
-            else{
-                sign = '/';
+                return null;
             }
 
-            if (!factor()) {
-                error("Missing factor after operator");
-                return false;
-            }
-        }
-    
-        return true;
-    }
-    
-    //constants, variables, (expressions), neg
-    private boolean factor() {
-        boolean hasBrackets = false;
-        if (consume(TokenType.CT_INT) || consume(TokenType.CT_REAL) || consume(TokenType.CT_CHAR) || consume(TokenType.CT_STRING)) {
-            if (tokens.get(index - 1).getType() == TokenType.CT_INT) {
-                 rv.type = new Type(TypeBase.TB_INT, null, -1);
-            } else if (tokens.get(index - 1).getType() == TokenType.CT_REAL) {
-                rv.type = new Type(TypeBase.TB_DOUBLE, null, -1);
-            } else if (tokens.get(index - 1).getType() == TokenType.CT_CHAR) {
-                rv.type = new Type(TypeBase.TB_CHAR, null, -1);
-            }
+            Type resultType = semanticAnalizer.getArithType(left.type, right.type);
+            CtVal resultCt = null;
 
-            return true;
-        } 
-        else if (consume(TokenType.ID)) {
-            String name = tokens.get(index-1).getValue().toString();
-            if (consume(TokenType.LBRACKET)) {
-                hasBrackets = true;
-                if (!expression()) {
-                    error("Missing expression inside array index");
-                    return false;
+            if (left.isCtVal && right.isCtVal) {
+                if (resultType.typeBase == TypeBase.TB_INT) {
+                    int a = left.ctVal.i;
+                    int b = right.ctVal.i;
+                    resultCt = CtVal.fromInt(op == TokenType.ADD ? a + b : a - b);
+                } else if (resultType.typeBase == TypeBase.TB_DOUBLE) {
+                    double a = left.type.typeBase == TypeBase.TB_INT ? left.ctVal.i : left.ctVal.d;
+                    double b = right.type.typeBase == TypeBase.TB_INT ? right.ctVal.i : right.ctVal.d;
+                    resultCt = CtVal.fromDouble(op == TokenType.ADD ? a + b : a - b);
                 }
+            }
+
+            left = new RetVal(resultType, false, resultCt != null, resultCt);
+        }
+
+        return left;
+    }
+
+    //multiplication and division
+    private RetVal term() {
+        RetVal left = factor();
+        if (left == null) return null;
+
+        TokenType op;
+        while (consume(TokenType.MUL) || consume(TokenType.DIV)) {
+            op = tokens.get(index - 1).getType();
+            RetVal right = factor();
+            if (right == null) {
+                error("Missing factor after operator");
+                return null;
+            }
+
+            if ((left.type.typeBase == TypeBase.TB_CHAR && left.type.nElements != -1) ||
+                    (right.type.typeBase == TypeBase.TB_CHAR && right.type.nElements != -1)) {
+                error("Cannot apply arithmetic operations to strings");
+                return null;
+            }
+
+            Type resultType = semanticAnalizer.getArithType(left.type, right.type);
+            CtVal resultCt = null;
+
+            if (left.isCtVal && right.isCtVal) {
+                if (resultType.typeBase == TypeBase.TB_INT) {
+                    int a = left.ctVal.i;
+                    int b = right.ctVal.i;
+                    resultCt = CtVal.fromInt(op == TokenType.MUL ? a * b : a / b);
+                } else if (resultType.typeBase == TypeBase.TB_DOUBLE) {
+                    double a = left.type.typeBase == TypeBase.TB_INT ? left.ctVal.i : left.ctVal.d;
+                    double b = right.type.typeBase == TypeBase.TB_INT ? right.ctVal.i : right.ctVal.d;
+                    resultCt = CtVal.fromDouble(op == TokenType.MUL ? a * b : a / b);
+                }
+            }
+
+            left = new RetVal(resultType, false, resultCt != null, resultCt);
+        }
+
+        return left;
+    }
+
+    //constants, variables, (expressions), neg
+    private RetVal factor() {
+        if (functionCall(false)) {
+            return rv;
+        }else if (consume(TokenType.CT_INT)) {
+            int val = (int) tokens.get(index - 1).getValue();
+            return new RetVal(new Type(TypeBase.TB_INT, null, -1), false, true, CtVal.fromInt(val));
+
+        } else if (consume(TokenType.CT_REAL)) {
+            double val = (double) tokens.get(index - 1).getValue();
+            return new RetVal(new Type(TypeBase.TB_DOUBLE, null, -1), false, true, CtVal.fromDouble(val));
+
+        } else if (consume(TokenType.CT_CHAR)) {
+            Object tokVal = tokens.get(index - 1).getValue();
+            int val = 0;
+
+            if (tokVal instanceof Character)
+                val = (char) tokVal;
+            else if (tokVal instanceof String str && str.length() == 1)
+                val = str.charAt(0);
+
+            return new RetVal(new Type(TypeBase.TB_CHAR, null, -1), false, true, CtVal.fromInt(val));
+
+        } else if (consume(TokenType.CT_STRING)) {
+            String val = tokens.get(index - 1).getValue().toString();
+            return new RetVal(
+                    new Type(TypeBase.TB_CHAR, null, 0),
+                    false,
+                    true,
+                    CtVal.fromString(val)
+            );
+
+        } else if (consume(TokenType.ID)) {
+            String name = tokens.get(index - 1).getValue().toString();
+            Symbol s = semanticAnalizer.findSymbol(semanticAnalizer.symbols, name);
+            if (s == null) {
+                error("Undefined symbol " + name);
+                return null;
+            }
+
+            Type t = s.type;
+
+            if (consume(TokenType.LBRACKET)) {
+                RetVal idx = expression();
+                if (idx == null || idx.type.typeBase != TypeBase.TB_INT || idx.type.nElements != -1) {
+                    error("Array index must be an integer scalar");
+                    return null;
+                }
+
                 if (!consume(TokenType.RBRACKET)) {
                     error("Missing closing bracket ]");
-                    return false;
+                    return null;
                 }
-            }
-            Symbol s = semanticAnalizer.findSymbol(semanticAnalizer.symbols, name);
 
-            if(s == null){
-                if(semanticAnalizer.crtFunc != null && semanticAnalizer.findSymbol(semanticAnalizer.crtFunc.args, name) == null)
-                    error("Symbol "+ name + " must be defined before initialization");
-            }
-            else{
-                rv.type = s.type;
-                if(s.type.nElements >= 0 && sign != ' '){
-                    error("cannot apply operation "+ sign+ " to array "+ name);
+                if (t.nElements < 0) {
+                    error("Only an array can be indexed");
+                    return null;
                 }
-                if(s.type.nElements < 0 && hasBrackets){
-                    error("only an array can be indexed");
-                }
+
+                return new RetVal(
+                        new Type(t.typeBase, null, -1),
+                        true,
+                        false,
+                        null
+                );
             }
 
-            return true;
-        } 
-        else if (consume(TokenType.NOT) || consume(TokenType.SUB) || consume(TokenType.ADD)) {
-            return factor();
+            RetVal val = new RetVal(s.type, true, false, null);
+            val.ctVal = s.ctVal;
+            return val;
+
+        } else if (consume(TokenType.LPAR)) {
+            RetVal inner = expression();
+            if (!consume(TokenType.RPAR)) {
+                error("Missing closing parenthesis");
+                return null;
+            }
+            return inner;
         }
-    
-        return false;
+
+        return null;
     }
 
     //i<5, i>5, i<=5, i>=5...
@@ -158,7 +208,7 @@ public class SyntacticAnalizer {
 
                 if(consume(TokenType.LBRACKET)){ //for array
                     hasBrackets = true;
-                    if(!expression()){
+                    if(expression() == null){
                         error("Missing expression inside array index");
                     }
                     if(!consume(TokenType.RBRACKET)){
@@ -205,7 +255,8 @@ public class SyntacticAnalizer {
                             }
                         }
                     }
-                    if(!expression()){
+
+                    if(expression() == null){
                         error("Missing expression after operator");
                     }
                 }
@@ -260,25 +311,29 @@ public class SyntacticAnalizer {
 
             if(tokens.get(index).getType() != TokenType.RPAR){
                 do{
-                    if(tokens.get(index).getType() == TokenType.ID && tokens.get(index+1).getType() != TokenType.LPAR){
+                    if(tokens.get(index).getType() == TokenType.ID) {
                         String varName = tokens.get(index).getValue().toString();
-                        consume(TokenType.ID);
                         Symbol var = semanticAnalizer.findSymbol(semanticAnalizer.symbols, varName); //find decl for argument
-                        if(var != null)
-                            semanticAnalizer.cast(s.args.get(argIndex).type, var.type); //check types for function signiture
+
+                        if (var != null) {
+                            if(tokens.get(index + 1).getType() == TokenType.LBRACKET)
+                                semanticAnalizer.cast(s.args.get(argIndex).type, new Type(var.type.typeBase, null, -1)); //only 1 element out of array
+                            else
+                                semanticAnalizer.cast(s.args.get(argIndex).type, var.type); //check types for function signiture
+
+                        }
                     }
-                    else {
-                        expression();
-                    }
+
+                    expression();
                     argIndex++;
-                    System.out.println("argument count: "+ argIndex);
+
                 }while(consume(TokenType.COMMA));
 
                 if(argIndex < s.args.size()){
-                    error("too few argument in function "+ name+ " call");
+                    error("too few arguments in function "+ name+ " call");
                 }
                 if(argIndex > s.args.size()){
-                    error("too many argument in function "+ name+ " call");
+                    error("too many arguments in function "+ name+ " call");
                 }
             }
 
@@ -296,7 +351,8 @@ public class SyntacticAnalizer {
     public boolean variableDeclaration(){
         boolean isStruct = false;
         boolean isArray = false;
-        int size = 0;
+        RetVal size = null;
+        int count = 0;
         if (consume(TokenType.INT) || consume(TokenType.DOUBLE) || consume(TokenType.CHAR) || consume(TokenType.STRUCT)) {
             Type type = semanticAnalizer.getType(tokens.get(index - 1).getType());
             do {
@@ -323,15 +379,11 @@ public class SyntacticAnalizer {
 
                 if (consume(TokenType.LBRACKET)) {
                     isArray = true;
-                    if(tokens.get(index).getType() != TokenType.RBRACKET) {
-                        if (tokens.get(index).getType() == TokenType.CT_INT) {
-                            size = (int) tokens.get(index).getValue();
-                        }
-                    }
-                    if(tokens.get(index).getType() != TokenType.RBRACKET)
-                        expression();
 
-                   if(rv.type.typeBase != TypeBase.TB_INT){
+                    if(tokens.get(index).getType() != TokenType.RBRACKET)
+                        size = expression();
+
+                   if(size != null && size.type.typeBase != TypeBase.TB_INT){
                        error("The array " + name + " size is not an integer");
                    }
 
@@ -345,6 +397,7 @@ public class SyntacticAnalizer {
                                 consume(TokenType.CT_INT);
                                 consume(TokenType.CT_REAL);
                                 consume(TokenType.CT_STRING);
+                                count++;
                             } while (consume(TokenType.COMMA));
 
                             if (!consume(TokenType.RACC)) {
@@ -359,14 +412,14 @@ public class SyntacticAnalizer {
 
                 if(!isStruct && tokens.get(index).getType() != TokenType.LPAR) { //not a struct declaration and not inside a function
                     semanticAnalizer.addVar(name, type);
-                    if(isArray){
-                        Symbol array = semanticAnalizer.symbols.getLast();
-                        array.type.nElements = 0;
-//                        if(size != 0)
-//                            array.type.nElements = size;
-//                        else
-//                            array.type.nElements = this.rv.ctVal.i;
-                   }
+                }
+
+                if(isArray){
+                    Symbol array = semanticAnalizer.symbols.getLast();
+                    if(size != null)
+                        array.type.nElements = size.ctVal.i;
+                    if(count != 0)
+                        array.type.nElements = count;
                 }
 
             } while (consume(TokenType.COMMA));
@@ -459,9 +512,13 @@ public class SyntacticAnalizer {
                             error("Struct "+ s.type.s.name+ " doesn't have member "+ name);
                         }
                     }
-                }
 
-                expression();
+                    RetVal val = expression();
+                    if(val != null && val.ctVal != null){
+                        if(val.ctVal.i != null || val.ctVal.d != null)
+                            s.ctVal = val.ctVal;
+                    }
+                }
 
                 if(!consume(TokenType.SEMICOLON) && hasSemicolon){
                     error("Missing semicolon ;");
@@ -474,7 +531,7 @@ public class SyntacticAnalizer {
                         error("only an array can be indexed");
                     }
 
-                    if(expression()){
+                    if(expression() != null){
                         if(!consume(TokenType.RBRACKET)){
                             error("Missing closing bracket ]");
                         }
@@ -485,6 +542,7 @@ public class SyntacticAnalizer {
                     if(tokens.get(index).getType() == TokenType.ID && tokens.get(index+1).getType() == TokenType.LPAR){ //function call
                         hasSemicolon = false;
                     }
+
                     expression();
                     if(!consume(TokenType.SEMICOLON) && hasSemicolon){
                         error("Missing semicolon ;");
@@ -505,7 +563,6 @@ public class SyntacticAnalizer {
             if(!consume(TokenType.LPAR)){
                 error("Missing opening parenthesis (");
             }
-
             condition();
             if(!consume(TokenType.RPAR)){
                 error("Missing closing parenthesis )");
@@ -607,7 +664,7 @@ public class SyntacticAnalizer {
                 error("a void function cannot return a value");
             }
 
-            if(condition() || expression()){
+            if(condition() || expression() != null){
                 if(!consume(TokenType.SEMICOLON)){
                     error("Missing semicolon ;");
                 }
@@ -706,7 +763,7 @@ public class SyntacticAnalizer {
     }
 
     public static void main(String[] args) throws IOException {
-        SyntacticAnalizer syntacticAnalizer = new SyntacticAnalizer("tests/4.c");
+        SyntacticAnalizer syntacticAnalizer = new SyntacticAnalizer("tests/9.c");
         syntacticAnalizer.analize(false);
         syntacticAnalizer.semanticAnalizer.printSymbols();
     }

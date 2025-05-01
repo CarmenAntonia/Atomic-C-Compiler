@@ -209,14 +209,4 @@ public class SemanticAnalizer {
         a.type=type;
         return a;
     }
-
-    public int computeValue(int a, int b, char s){
-        return switch (s) {
-            case '+' -> a + b;
-            case '-' -> a - b;
-            case '*' -> a * b;
-            case '/' -> a / b;
-            default -> 0;
-        };
-    }
 }
